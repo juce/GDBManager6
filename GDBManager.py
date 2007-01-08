@@ -11,9 +11,6 @@ import palettelib
 
 VERSION, DATE = "6.4", "01/2007"
 DEFAULT_PNG = os.getcwd() + "/default.png"
-SHORTS_MASK_PNG = os.getcwd() + "/shorts-mask.png"
-SHORTS63_MASK_PNG = os.getcwd() + "/shorts63-mask.png"
-WIZARD_PNG = os.getcwd() + "/wizard.png"
 CONFIG_FILE = os.getcwd() + "/gdbm.cfg"
 WINDOW_TITLE = "GDB Manager 6"
 FRAME_WIDTH = 800
@@ -847,32 +844,6 @@ class KitPanel(wx.Panel):
                 hasSomething = True
             if not hasSomething:
                 bmp = wx.Bitmap(DEFAULT_PNG)
-                dc.DrawBitmap(bmp, 0, 0, True)
-
-        # draw different shorts, if needed
-        teamDir,kitKey = os.path.split(kit.foldername)
-        if kit.shortsKey != kitKey:
-            path = "%s/%s" % (teamDir,kit.shortsKey) 
-            maskPng = SHORTS_MASK_PNG
-            try: model = int(kit.attributes["model"])
-            except KeyError: model = 0
-            if model == 63: maskPng = SHORTS63_MASK_PNG
-
-            if os.path.exists(path + "/all.png"):
-                bmp = wx.Bitmap(path + "/all.png")
-                bmp = applyMask(bmp, maskPng)
-                dc.DrawBitmap(bmp, 0, 0, True)
-            elif os.path.exists(path + "/all.bmp"):
-                bmp = wx.Bitmap(path + "/all.bmp")
-                bmp = applyMask(bmp, maskPng)
-                dc.DrawBitmap(bmp, 0, 0, True)
-            elif os.path.exists(path + "/shorts.png"):
-                bmp = wx.Bitmap(path + "/shorts.png")
-                bmp = applyMask(bmp, maskPng)
-                dc.DrawBitmap(bmp, 0, 0, True)
-            elif os.path.exists(path + "/shorts.bmp"):
-                bmp = wx.Bitmap(path + "/shorts.bmp")
-                bmp = applyMask(bmp, maskPng)
                 dc.DrawBitmap(bmp, 0, 0, True)
 
     def OnPaint(self, event):
