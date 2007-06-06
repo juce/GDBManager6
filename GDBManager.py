@@ -14,7 +14,7 @@ DEFAULT_PNG = os.getcwd() + "/default.png"
 CONFIG_FILE = os.getcwd() + "/gdbm.cfg"
 WINDOW_TITLE = "GDB Manager 6"
 FRAME_WIDTH = 800
-FRAME_HEIGHT = 690
+FRAME_HEIGHT = 810
 
 DEFAULT_MASK = "mask.png"
 MASK_COLORS = {
@@ -799,6 +799,145 @@ class MyShortsNumPalFile(MyNumbersFile):
                 # add kit to modified set
                 self.frame.addKitToModified()
 
+        dlg.Destroy()
+
+
+"""
+A dir choice with label
+"""
+class MyPartFolder(MyNumbersFile):
+
+    def __init__(self, parent, attribute, labelText, value, rootPath, frame, kit=None):
+        wx.Panel.__init__(self, parent, -1)
+        self.rootPath = rootPath
+        self.frame = frame
+        self.kit = kit
+        self.att = attribute
+        self.label = wx.StaticText(self, -1, labelText, size=(140,-1), style=wx.ALIGN_RIGHT)
+        self.label.SetBackgroundColour(wx.Colour(230,230,230))
+        font = wx.Font(10, wx.SWISS, wx.NORMAL, wx.NORMAL)
+        self.label.SetFont(font)
+        self.label.SetSize(self.label.GetBestSize())
+
+        self.text = wx.TextCtrl(self, -1, "", size=(130,-1))
+        self.button = wx.Button(self, -1, "undef", size=(60,1))
+        self.fileButton = wx.Button(self, -1, "...", size=(30,1))
+
+        self.sizer = wx.BoxSizer(wx.HORIZONTAL)
+        self.sizer.Add(self.button, 0, wx.RIGHT | wx.EXPAND, border=10)
+        self.sizer.Add(self.label, 0, wx.RIGHT | wx.ALIGN_CENTER_VERTICAL, border=10)
+        self.sizer.Add(self.text, 0, wx.EXPAND)
+        self.sizer.Add(self.fileButton, 0, wx.EXPAND)
+
+        # by default the kit panel is not refreshed on selection change
+        self.refreshOnChange = False
+
+        # bind events
+        #self.text.Bind(wx.EVT_CHOICE, self.OnSelect)
+        self.button.Bind(wx.EVT_BUTTON, self.OnUndef)
+        self.fileButton.Bind(wx.EVT_BUTTON, self.OnChooseFile)
+
+        self.SetSizer(self.sizer)
+        self.Layout()
+
+    def SetStringSelection(self, str=None):
+        kit = self.getKit()
+        if str == None:
+            try: str = kit.attributes[self.att]
+            except KeyError: str = "undefined"
+        self.text.SetValue(str)
+        kit.attributes[self.att] = str
+        if self.refreshOnChange:
+            self.frame.kitPanel.Refresh()
+
+    def SetUndef(self):
+        kit = self.getKit()
+        self.text.SetValue("")
+        try:
+            del kit.attributes[self.att] 
+        except AttributeError:
+            pass
+        except KeyError:
+            pass
+        if self.refreshOnChange:
+            self.frame.kitPanel.Refresh()
+
+    def OnChooseFile(self, event):
+        kit = self.getKit()
+        tokens = os.path.split(kit.foldername)
+        defaultPath = "%s/%s" % (tokens[0], kit.attributes.get(self.att, tokens[1]))
+
+        dlg = wx.DirDialog(self, 
+                """Select the kit part folder""", 
+                defaultPath=defaultPath,
+                style=wx.DD_DEFAULT_STYLE)
+
+        if dlg.ShowModal() == wx.ID_OK:
+            path = dlg.GetPath()
+            print "You selected %s" % path
+            if path:
+                newpath = os.path.normcase(path)
+                self.SetStringSelection(os.path.split(newpath)[1])
+
+                # add kit to modified set
+                self.frame.addKitToModified()
+
+        dlg.Destroy()
+
+"""
+A file choice with label
+"""
+class MyMaskFile(MyPartFolder):
+
+    def SetStringSelection(self, str=None):
+        kit = self.getKit()
+        if not str: str = kit.attributes.get(self.att,"")
+        self.text.SetValue(str)
+        kit.attributes[self.att] = str
+        if self.refreshOnChange:
+            self.frame.kitPanel.Refresh()
+
+    def SetUndef(self):
+        kit = self.getKit()
+        self.text.SetValue("")
+        try:
+            del kit.attributes[self.att]
+        except AttributeError:
+            pass
+        except KeyError:
+            pass
+        if self.refreshOnChange:
+            self.frame.kitPanel.Refresh()
+
+    def OnChooseFile(self, event):
+        wildcard = "PNG images (*.png)|*.png|" \
+                   "BMP images (*.bmp)|*.bmp"
+
+        kit = self.getKit()
+        currdir = kit.foldername
+        defaultDir = self.frame.gdbPath + "/uni/masks"
+        defaultFile = kit.attributes.get(self.att,DEFAULT_MASK)
+
+        dlg = wx.FileDialog(
+            self, message="Choose a file", defaultDir=defaultDir, 
+            defaultFile=defaultFile, wildcard=wildcard, style=wx.OPEN | wx.CHANGE_DIR
+            )
+
+        # Show the dialog and retrieve the user response. If it is the OK response, 
+        # process the data.
+        if dlg.ShowModal() == wx.ID_OK:
+            # This returns a Python list of files that were selected.
+            files = dlg.GetPaths()
+            if len(files)>0:
+                maskfile = os.path.split(os.path.normcase(files[0]))[1]
+                self.SetStringSelection(maskfile)
+
+                # add kit to modified set
+                self.frame.addKitToModified()
+
+        dlg.Destroy()
+
+
 
 """
 A panel with kit texture
@@ -1295,6 +1434,22 @@ class MyFrame(wx.Frame):
         self.desc = MyTextField(p2, "description", "Description:", "undefined", self.gdbPath, self)
         self.desc.refreshOnChange = True
 
+        # shirt.folder choice
+        self.shirtFolder = MyPartFolder(p2, "shirt.folder", "Shirt Folder:", "undefined", self.gdbPath, self)
+        self.shirtFolder.refreshOnChange = True
+
+        # shorts.folder choice
+        self.shortsFolder = MyPartFolder(p2, "shorts.folder", "Shorts Folder:", "undefined", self.gdbPath, self)
+        self.shortsFolder.refreshOnChange = True
+
+        # shorts.folder choice
+        self.socksFolder = MyPartFolder(p2, "socks.folder", "Socks Folder:", "undefined", self.gdbPath, self)
+        self.socksFolder.refreshOnChange = True
+
+        # mask file choice
+        self.maskFile = MyMaskFile(p2, "mask", "Mask:", "undefined", self.gdbPath, self)
+        self.maskFile.refreshOnChange = True
+
         # Kit database folder
         try:
             cfg = open(CONFIG_FILE, "rt")
@@ -1361,6 +1516,10 @@ class MyFrame(wx.Frame):
         self.rightSizer.Add(self.radarCS, 0, wx.LEFT | wx.ALIGN_CENTER, border=10)
         self.rightSizer.Add(self.shortsCS, 0, wx.LEFT | wx.ALIGN_CENTER, border=10)
         self.rightSizer.Add(self.desc, 0, wx.LEFT | wx.BOTTOM | wx.ALIGN_CENTER, border=10)
+        self.rightSizer.Add(self.shirtFolder, 0, wx.LEFT | wx.TOP | wx.ALIGN_CENTER, border=10)
+        self.rightSizer.Add(self.shortsFolder, 0, wx.LEFT | wx.ALIGN_CENTER, border=10)
+        self.rightSizer.Add(self.socksFolder, 0, wx.LEFT | wx.ALIGN_CENTER, border=10)
+        self.rightSizer.Add(self.maskFile, 0, wx.LEFT | wx.ALIGN_CENTER, border=10)
 
         splitter.SetMinimumPaneSize(80)
         splitter.SplitVertically(self.tree, p2, -520)
@@ -1546,6 +1705,30 @@ inside your kitserver folder)""",
         except:
             self.radarCS.ClearColour()
 
+        # update folder
+        try:
+            self.shirtFolder.SetStringSelection(kit.attributes["shirt.folder"])
+        except:
+            self.shirtFolder.SetUndef()
+
+        # update folder
+        try:
+            self.shortsFolder.SetStringSelection(kit.attributes["shorts.folder"])
+        except:
+            self.shortsFolder.SetUndef()
+
+        # update folder
+        try:
+            self.socksFolder.SetStringSelection(kit.attributes["socks.folder"])
+        except:
+            self.socksFolder.SetUndef()
+
+        # mask file
+        try:
+            self.maskFile.SetStringSelection(kit.attributes["mask"])
+        except:
+            self.maskFile.SetUndef()
+
         # update shorts color
         try:
             self.shortsCS.SetRGBAColour(MakeRGBAColor(kit.attributes["shorts.color"]))
@@ -1585,6 +1768,10 @@ inside your kitserver folder)""",
             self.radarCS.Enable(False)
             self.shortsCS.Enable(False)
             self.desc.Enable(False)
+            self.shirtFolder.Enable(False)
+            self.shortsFolder.Enable(False)
+            self.socksFolder.Enable(False)
+            self.maskFile.Enable(False)
         else:
             self.collar.Enable(True)
             self.model.Enable(True)
@@ -1598,6 +1785,10 @@ inside your kitserver folder)""",
             #self.shortsKeys.Enable(False)
             #self.checkShortsCombos.Enable(True)
             self.radarCS.Enable(True)
+            self.shirtFolder.Enable(True)
+            self.shortsFolder.Enable(True)
+            self.socksFolder.Enable(True)
+            self.maskFile.Enable(True)
             self.shortsCS.Enable(True)
             self.desc.Enable(True)
 
