@@ -1,5 +1,5 @@
 # GDB Manager
-# Version 6.4
+# Version 6.5
 # by Juce.
 
 import wx
@@ -7,14 +7,21 @@ import wx.lib.colourselect as csel
 import string, math, re
 import sys, os, cStringIO
 
-import palettelib
+import palettelib, cpalettelib
 
-VERSION, DATE = "6.4", "01/2007"
+VERSION, DATE = "6.5", "06/2007"
 DEFAULT_PNG = os.getcwd() + "/default.png"
 CONFIG_FILE = os.getcwd() + "/gdbm.cfg"
 WINDOW_TITLE = "GDB Manager 6"
 FRAME_WIDTH = 800
 FRAME_HEIGHT = 690
+
+DEFAULT_MASK = "mask.png"
+MASK_COLORS = {
+    "shirt":0x0000ff,
+    "shorts":0xff0000,
+    "socks":0x00ffff,
+}
 
 overlayPositions = {
     "wide-back":{
@@ -141,6 +148,11 @@ def applyMask(bitmap, maskfile):
     #img.SetAlphaBuffer(a)
     img.SetAlphaBuffer(b)
     return img.ConvertToBitmap()
+
+def applyColourMask(image, maskimage, color):
+    alphaBuf = image.GetAlphaBuffer()
+    maskImageBuf = maskimage.GetDataBuffer()
+    cpalettelib.applyAlphaMask(alphaBuf,maskImageBuf,color)
 
 def hasSamePalette(shirtPath, shortsPath):
     shirt = "%s\\all.png" % shirtPath
@@ -753,6 +765,7 @@ class MyShortsNumPalFile(MyNumbersFile):
         self.text.SetValue("")
         try:
             del kit.attributes[self.att % kit.shortsKey] 
+            del kit.attributes["shorts.num-pal"]
         except AttributeError:
             pass
         except KeyError:
@@ -800,51 +813,51 @@ class KitPanel(wx.Panel):
         # bind events
         self.Bind(wx.EVT_PAINT, self.OnPaint)
 
-    def scaleAndDrawBitmap(self, dc, bmp):
-        width,height = bmp.GetSize()
-        self.frame.SetTitle("%s: (%d,%d) kit" % (WINDOW_TITLE,width,height))
-        #print "(%d, %d)" % (width,height)
-        if width != 512 or height != 256:
-            bmp = bmp.ConvertToImage().Scale(512,256).ConvertToBitmap()
-        dc.DrawBitmap(bmp, 0, 0, True)
+    def getPartFile(self, kit, part):
+        partFolder = kit.attributes.get("%s.folder" % part)
+        if partFolder: foldername = "%s/%s" % (os.path.split(kit.foldername)[0], partFolder)
+        else: foldername = kit.foldername
+        filename = "%s/%s.png" % (foldername,part)
+        if os.path.exists(filename):
+            return filename
+        filename = "%s/%s.bmp" % (foldername,part)
+        if os.path.exists(filename):
+            return filename
+        filename = "%s/all.png" % foldername
+        if os.path.exists(filename):
+            return filename
+        filename = "%s/all.bmp" % foldername
+        if os.path.exists(filename):
+            return filename
+        return None
 
-    def drawBitmap(self, dc, kit):
-        if os.path.exists(kit.foldername + "/all.png"):
-            bmp = wx.Bitmap(kit.foldername + "/all.png")
-            #dc.DrawBitmap(bmp, 0, 0, True)
-            self.scaleAndDrawBitmap(dc, bmp)
-        elif os.path.exists(kit.foldername + "/all.bmp"):
-            bmp = wx.Bitmap(kit.foldername + "/all.bmp")
+    def drawFiles(self, dc, kit, files):
+        drawnSome = False
+        for part,file in files:
+            if file:
+                bmp = wx.Bitmap(file)
+                width,height = bmp.GetSize()
+                if part=="shirt":
+                    self.frame.SetTitle("%s: (%dx%d) kit" % (WINDOW_TITLE,width,height))
+                if width != 512 or height != 256:
+                    bmp = bmp.ConvertToImage().Scale(512,256).ConvertToBitmap()
+
+                img = bmp.ConvertToImage()
+                maskfile = self.frame.gdbPath + "/uni/masks/" + self.kit.attributes.get("mask",DEFAULT_MASK)
+                if os.path.exists(maskfile) and len(files)>1:
+                    maskImg = wx.Bitmap(maskfile).ConvertToImage()
+                    applyColourMask(img, maskImg, MASK_COLORS[part])
+                dc.DrawBitmap(img.ConvertToBitmap(),0,0,True)
+                drawnSome = True
+        return drawnSome
+
+    def drawKit(self, dc, kit):
+        files = [(part,self.getPartFile(kit,part)) for part in ["shirt","shorts","socks"]]
+        if files[0][1]==files[1][1] and files[1][1]==files[2][1]: del files[1:]
+        hasSomething = self.drawFiles(dc, kit, files)
+        if not hasSomething:
+            bmp = wx.Bitmap(DEFAULT_PNG)
             dc.DrawBitmap(bmp, 0, 0, True)
-        else:
-            hasSomething = False
-            if os.path.exists(kit.foldername + "/shirt.png"):
-                bmp = wx.Bitmap(kit.foldername + "/shirt.png")
-                dc.DrawBitmap(bmp, 0, 0, True)
-                hasSomething = True
-            elif os.path.exists(kit.foldername + "/shirt.bmp"):
-                bmp = wx.Bitmap(kit.foldername + "/shirt.bmp")
-                dc.DrawBitmap(bmp, 0, 0, True)
-                hasSomething = True
-            if os.path.exists(kit.foldername + "/shorts.png"):
-                bmp = wx.Bitmap(kit.foldername + "/shorts.png")
-                dc.DrawBitmap(bmp, 0, 0, True)
-                hasSomething = True
-            elif os.path.exists(kit.foldername + "/shorts.bmp"):
-                bmp = wx.Bitmap(kit.foldername + "/shorts.bmp")
-                dc.DrawBitmap(bmp, 0, 0, True)
-                hasSomething = True
-            if os.path.exists(kit.foldername + "/socks.png"):
-                bmp = wx.Bitmap(kit.foldername + "/socks.png")
-                dc.DrawBitmap(bmp, 0, 0, True)
-                hasSomething = True
-            elif os.path.exists(kit.foldername + "/socks.bmp"):
-                bmp = wx.Bitmap(kit.foldername + "/socks.bmp")
-                dc.DrawBitmap(bmp, 0, 0, True)
-                hasSomething = True
-            if not hasSomething:
-                bmp = wx.Bitmap(DEFAULT_PNG)
-                dc.DrawBitmap(bmp, 0, 0, True)
 
     def OnPaint(self, event):
         dc = wx.PaintDC(self)
@@ -859,7 +872,7 @@ class KitPanel(wx.Panel):
             dc.DrawBitmap(bmp, 0, 0, True)
             return event.Skip()
         else:
-            self.drawBitmap(dc, self.kit)
+            self.drawKit(dc, self.kit)
 
         # draw some overlay items
         kit = self.kit
@@ -902,7 +915,9 @@ class KitPanel(wx.Panel):
 
             # render number on shorts, using palette file
             try: numpal = "%s/%s" % (kit.foldername, kit.attributes["shorts.num-pal."+kit.shortsKey])
-            except KeyError: numpal = ""
+            except KeyError:
+                try: numpal = "%s/%s" % (kit.foldername, kit.attributes["shorts.num-pal"])
+                except KeyError: numpal = ""
             if os.path.exists(numpal):
                 try: shortsLoc = self.frame.shortsNumLocation.kit.attributes["shorts.number.location"]
                 except KeyError: shortsLoc = "left"
@@ -1521,7 +1536,9 @@ inside your kitserver folder)""",
         try:
             self.numpal.SetStringSelection(kit.attributes["shorts.num-pal.%s" % kit.shortsKey])
         except:
-            self.numpal.SetUndef()
+            try: self.numpal.SetStringSelection(kit.attributes["shorts.num-pal"])
+            except: 
+                self.numpal.SetUndef()
 
         # update radar color
         try:
