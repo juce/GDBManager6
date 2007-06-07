@@ -921,13 +921,26 @@ class MyMaskFile(MyPartFolder):
                    "BMP images (*.bmp)|*.bmp"
 
         kit = self.getKit()
-        currdir = kit.foldername
-        defaultDir = self.frame.gdbPath + "/uni/masks"
+        curvalue = kit.attributes.get(self.att)
+        if not curvalue:
+            defaultDir = self.frame.gdbPath + "/uni/masks"
+        else:
+            # check to see if the file exists relative to kit dir
+            fullpath = "%s/%s" % (kit.foldername, curvalue)
+            if os.path.exists(fullpath):
+                defaultDir = os.path.split(fullpath)[0]
+            else:
+                fullpath = "%s/uni/masks/%s" % (self.frame.gdbPath, curvalue)
+                if os.path.exists(fullpath):
+                    defaultDir = os.path.split(fullpath)[0]
+                else:
+                    defaultDir = self.frame.gdbPath + "/uni/masks"
+
         defaultFile = kit.attributes.get(self.att,DEFAULT_MASK)
 
         dlg = wx.FileDialog(
             self, message="Choose a file", defaultDir=defaultDir, 
-            defaultFile=defaultFile, wildcard=wildcard, style=wx.OPEN | wx.CHANGE_DIR
+            defaultFile="", wildcard=wildcard, style=wx.OPEN | wx.CHANGE_DIR
             )
 
         # Show the dialog and retrieve the user response. If it is the OK response, 
@@ -936,13 +949,22 @@ class MyMaskFile(MyPartFolder):
             # This returns a Python list of files that were selected.
             files = dlg.GetPaths()
             if len(files)>0:
-                maskfile = os.path.split(os.path.normcase(files[0]))[1]
-                self.SetStringSelection(maskfile)
+                newfile = os.path.normcase(files[0])
+                kitBasedir = os.path.normcase(kit.foldername)
+                standardBasedir = os.path.normcase(self.frame.gdbPath + "/uni/masks")
+                # make relative path
+                relpath1 = makeRelativePath(newfile,kitBasedir)
+                relpath2 = makeRelativePath(newfile,standardBasedir)
+                if len(relpath1)<=len(relpath2):
+                    self.SetStringSelection(relpath1)
+                else:
+                    self.SetStringSelection(relpath2)
 
                 # add kit to modified set
-                self.frame.addKitToModified()
+                self.frame.addKitToModified(kit)
 
         dlg.Destroy()
+
 
 """
 A file choice with label
@@ -974,8 +996,20 @@ class MyOverlayFile(MyPartFolder):
                    "BMP images (*.bmp)|*.bmp"
 
         kit = self.getKit()
-        currdir = kit.foldername
-        defaultDir = self.frame.gdbPath + "/uni/overlay"
+        curvalue = kit.attributes.get(self.att)
+        if not curvalue:
+            defaultDir = self.frame.gdbPath + "/uni/overlay"
+        else:
+            # check to see if the file exists relative to kit dir
+            fullpath = "%s/%s" % (kit.foldername, curvalue)
+            if os.path.exists(fullpath):
+                defaultDir = os.path.split(fullpath)[0]
+            else:
+                fullpath = "%s/uni/overlay/%s" % (self.frame.gdbPath, curvalue)
+                if os.path.exists(fullpath):
+                    defaultDir = os.path.split(fullpath)[0]
+                else:
+                    defaultDir = self.frame.gdbPath + "/uni/overlay"
 
         dlg = wx.FileDialog(
             self, message="Choose a file", defaultDir=defaultDir, 
@@ -989,9 +1023,15 @@ class MyOverlayFile(MyPartFolder):
             files = dlg.GetPaths()
             if len(files)>0:
                 newfile = os.path.normcase(files[0])
-                basedir = os.path.normcase(defaultDir)
+                kitBasedir = os.path.normcase(kit.foldername)
+                standardBasedir = os.path.normcase(self.frame.gdbPath + "/uni/overlay")
                 # make relative path
-                self.SetStringSelection(makeRelativePath(newfile, basedir))
+                relpath1 = makeRelativePath(newfile,kitBasedir)
+                relpath2 = makeRelativePath(newfile,standardBasedir)
+                if len(relpath1)<=len(relpath2):
+                    self.SetStringSelection(relpath1)
+                else:
+                    self.SetStringSelection(relpath2)
 
                 # add kit to modified set
                 self.frame.addKitToModified(kit)
@@ -1029,6 +1069,29 @@ class KitPanel(wx.Panel):
             return filename
         return None
 
+    def getOverlayFile(self,kit,overlay):
+        # check the team folder first
+        filename = os.path.normcase("%s/%s" % (kit.foldername,overlay))
+        if os.path.exists(filename): return filename
+        # check the standard folder
+        filename = os.path.normcase("%s/uni/overlay/%s" % (self.frame.gdbPath,overlay))
+        if os.path.exists(filename): return filename
+        # overlay file not found
+        print >>sys.stderr,"overlay '%s' NOT found for kit: %s" % (overlay,kit.foldername)
+        return None
+
+    def getMaskFile(self,kit,mask):
+        # check the team folder first
+        filename = os.path.normcase("%s/%s" % (kit.foldername,mask))
+        if os.path.exists(filename): return filename
+        # check the standard folder
+        filename = os.path.normcase("%s/uni/masks/%s" % (self.frame.gdbPath,mask))
+        if os.path.exists(filename): return filename
+        # mask file not found
+        print >>sys.stderr,"mask file '%s' NOT found for kit: %s" % (mask,kit.foldername)
+        return None
+
+
     def drawFiles(self, dc, kit, files):
         drawnSome = False
         for part,file in files:
@@ -1041,22 +1104,24 @@ class KitPanel(wx.Panel):
                     bmp = bmp.ConvertToImage().Scale(512,256).ConvertToBitmap()
 
                 img = bmp.ConvertToImage()
-                maskfile = self.frame.gdbPath + "/uni/masks/" + self.kit.attributes.get("mask",DEFAULT_MASK)
-                if os.path.exists(maskfile) and len(files)>1:
+                maskfile = self.getMaskFile(kit, self.kit.attributes.get("mask",DEFAULT_MASK))
+                if maskfile and len(files)>1:
                     maskImg = wx.Bitmap(maskfile).ConvertToImage()
                     applyColourMask(img, maskImg, MASK_COLORS[part])
                 dc.DrawBitmap(img.ConvertToBitmap(),0,0,True)
                 drawnSome = True
         overlay = kit.attributes.get("overlay")
         if overlay:
-            bmp = wx.Bitmap(self.frame.gdbPath + "/uni/overlay/" + overlay)
-            img = bmp.ConvertToImage()
-            width,height = bmp.GetSize()
-            if width != 512 or height != 256:
-                img = img.Scale(512,256)
-            if not img.HasAlpha() and not img.HasMask():
-                img.SetMaskColour(0xff,0,0xff) # pink overlay mask color
-            dc.DrawBitmap(img.ConvertToBitmap(),0,0,True)
+            overlayfile = self.getOverlayFile(kit,overlay)
+            if overlayfile:
+                bmp = wx.Bitmap(overlayfile)
+                img = bmp.ConvertToImage()
+                width,height = bmp.GetSize()
+                if width != 512 or height != 256:
+                    img = img.Scale(512,256)
+                if not img.HasAlpha() and not img.HasMask():
+                    img.SetMaskColour(0xff,0,0xff) # pink overlay mask color
+                dc.DrawBitmap(img.ConvertToBitmap(),0,0,True)
         return drawnSome
 
     def drawKit(self, dc, kit):
@@ -1068,6 +1133,11 @@ class KitPanel(wx.Panel):
             dc.DrawBitmap(bmp, 0, 0, True)
 
     def OnPaint(self, event):
+        try: self.repaint(event)
+        except Exception,info:
+            print >>sys.stderr,info
+
+    def repaint(self, event):
         dc = wx.PaintDC(self)
 
         # disable warning pop-ups
@@ -1341,18 +1411,25 @@ Do you want to save them?""",
     """
     Recursivelly adds specified path.
     """
-    def addDir(self, node, path):
-        if os.path.isdir(path) and path.rfind("/uni/masks")==-1 and not path.endswith("/uni/overlay"):
+    def addDir(self, node, path, inmap=False, cinmap=False):
+        if os.path.isdir(path):
             child = self.AppendItem(node, "%s" % os.path.split(path)[1])
             kit = self.makeKit(path)
             self.SetPyData(child, kit)
             self.SetItemImage(child, self.fldridx, wx.TreeItemIcon_Normal)
             self.SetItemImage(child, self.fldropenidx, wx.TreeItemIcon_Expanded)
 
+            inmap = inmap or self.reverseTeamMap.has_key(os.path.normcase(path))
+
             dirs = ["%s/%s" % (path,item) for item in os.listdir(path)]
             dirs.sort()
             for dir in dirs:
-                self.addDir(child,dir)
+                cinmap = self.addDir(child,dir,inmap) or cinmap
+
+            if not inmap and not cinmap:
+                self.Delete(child)
+
+            return cinmap or inmap
 
 
     def updateTree(self):
