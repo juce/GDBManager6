@@ -14,7 +14,7 @@ DEFAULT_PNG = os.getcwd() + "/default.png"
 CONFIG_FILE = os.getcwd() + "/gdbm.cfg"
 WINDOW_TITLE = "GDB Manager 6"
 FRAME_WIDTH = 800
-FRAME_HEIGHT = 810
+FRAME_HEIGHT = 830
 
 DEFAULT_MASK = "mask.png"
 MASK_COLORS = {
@@ -175,16 +175,20 @@ def hasSamePalette(shirtPath, shortsPath):
                     return False
     return palettelib.samePalette(shirt, shorts)
 
+def getCommonDir(path,base):
+    npath = os.path.normcase(path).split('\\')
+    nbase = os.path.normcase(base).split('\\')
+    common = [s for (s,i) in zip(npath,range(min(len(npath),len(nbase)))) if nbase[i]==s]
+    return '\\'.join(common)
+
 def makeRelativePath(path, base):
-    prefix = os.path.commonprefix([path,base])
-    if len(prefix)==0:
+    commonDir = getCommonDir(path,base)
+    if len(commonDir)==0:
         return path
-    if prefix[-1] != '\\':
-        prefix = prefix[:prefix.rfind('\\')+1]
-    relPath = path[len(prefix):]
-    baseRest = base[len(prefix):]
-    for backdir in baseRest.split("\\"):
-        relPath = "../%s" % relPath
+    relPath = path[len(commonDir)+1:]
+    baseRest = base[len(commonDir)+1:]
+    if len(baseRest)>0:
+        relPath = "%s%s" % ("../" * len(baseRest.split("\\")), relPath)
     return os.path.normcase(relPath)
 
 def isNationalKit(teamId):
@@ -666,6 +670,7 @@ class MyNumbersFile(wx.Panel):
         self.label.SetSize(self.label.GetBestSize())
 
         self.text = wx.TextCtrl(self, -1, "", size=(170,-1))
+        self.text.SetEditable(False)
         self.button = wx.Button(self, -1, "undef", size=(60,1))
         self.fileButton = wx.Button(self, -1, "...", size=(30,1))
 
@@ -820,6 +825,7 @@ class MyPartFolder(MyNumbersFile):
         self.label.SetSize(self.label.GetBestSize())
 
         self.text = wx.TextCtrl(self, -1, "", size=(130,-1))
+        self.text.SetEditable(False)
         self.button = wx.Button(self, -1, "undef", size=(60,1))
         self.fileButton = wx.Button(self, -1, "...", size=(30,1))
 
@@ -865,19 +871,20 @@ class MyPartFolder(MyNumbersFile):
     def OnChooseFile(self, event):
         kit = self.getKit()
         tokens = os.path.split(kit.foldername)
-        defaultPath = "%s/%s" % (tokens[0], kit.attributes.get(self.att, tokens[1]))
-
-        dlg = wx.DirDialog(self, 
-                """Select the kit part folder""", 
-                defaultPath=defaultPath,
-                style=wx.DD_DEFAULT_STYLE)
-
+        items = [d for d in os.listdir(tokens[0])
+                    if os.path.isdir("%s/%s" % (tokens[0],d)) and d[0] in ['p','g']]
+        defaultItem = kit.attributes.get(self.att)
+        dlg = wx.SingleChoiceDialog(
+                self, 'Select the kit part folder', 'Folder selector', items,
+                wx.CHOICEDLG_STYLE
+                )
+        if defaultItem in items: dlg.SetSelection(items.index(defaultItem))
         if dlg.ShowModal() == wx.ID_OK:
-            path = dlg.GetPath()
-            print "You selected %s" % path
+            path = dlg.GetStringSelection()
+            print "You selected: %s" % path
             if path:
                 newpath = os.path.normcase(path)
-                self.SetStringSelection(os.path.split(newpath)[1])
+                self.SetStringSelection(newpath)
 
                 # add kit to modified set
                 self.frame.addKitToModified()
@@ -937,7 +944,59 @@ class MyMaskFile(MyPartFolder):
 
         dlg.Destroy()
 
+"""
+A file choice with label
+"""
+class MyOverlayFile(MyPartFolder):
 
+    def SetStringSelection(self, str=None):
+        kit = self.getKit()
+        if not str: str = kit.attributes.get(self.att,"")
+        self.text.SetValue(str)
+        kit.attributes[self.att] = str
+        if self.refreshOnChange:
+            self.frame.kitPanel.Refresh()
+
+    def SetUndef(self):
+        kit = self.getKit()
+        self.text.SetValue("")
+        try:
+            del kit.attributes[self.att]
+        except AttributeError:
+            pass
+        except KeyError:
+            pass
+        if self.refreshOnChange:
+            self.frame.kitPanel.Refresh()
+
+    def OnChooseFile(self, event):
+        wildcard = "PNG images (*.png)|*.png|" \
+                   "BMP images (*.bmp)|*.bmp"
+
+        kit = self.getKit()
+        currdir = kit.foldername
+        defaultDir = self.frame.gdbPath + "/uni/overlay"
+
+        dlg = wx.FileDialog(
+            self, message="Choose a file", defaultDir=defaultDir, 
+            defaultFile="", wildcard=wildcard, style=wx.OPEN | wx.CHANGE_DIR
+            )
+
+        # Show the dialog and retrieve the user response. If it is the OK response, 
+        # process the data.
+        if dlg.ShowModal() == wx.ID_OK:
+            # This returns a Python list of files that were selected.
+            files = dlg.GetPaths()
+            if len(files)>0:
+                newfile = os.path.normcase(files[0])
+                basedir = os.path.normcase(defaultDir)
+                # make relative path
+                self.SetStringSelection(makeRelativePath(newfile, basedir))
+
+                # add kit to modified set
+                self.frame.addKitToModified(kit)
+
+        dlg.Destroy()
 
 """
 A panel with kit texture
@@ -988,6 +1047,16 @@ class KitPanel(wx.Panel):
                     applyColourMask(img, maskImg, MASK_COLORS[part])
                 dc.DrawBitmap(img.ConvertToBitmap(),0,0,True)
                 drawnSome = True
+        overlay = kit.attributes.get("overlay")
+        if overlay:
+            bmp = wx.Bitmap(self.frame.gdbPath + "/uni/overlay/" + overlay)
+            img = bmp.ConvertToImage()
+            width,height = bmp.GetSize()
+            if width != 512 or height != 256:
+                img = img.Scale(512,256)
+            if not img.HasAlpha() and not img.HasMask():
+                img.SetMaskColour(0xff,0,0xff) # pink overlay mask color
+            dc.DrawBitmap(img.ConvertToBitmap(),0,0,True)
         return drawnSome
 
     def drawKit(self, dc, kit):
@@ -1273,7 +1342,7 @@ Do you want to save them?""",
     Recursivelly adds specified path.
     """
     def addDir(self, node, path):
-        if os.path.isdir(path) and path.rfind("/uni/masks")==-1:
+        if os.path.isdir(path) and path.rfind("/uni/masks")==-1 and not path.endswith("/uni/overlay"):
             child = self.AppendItem(node, "%s" % os.path.split(path)[1])
             kit = self.makeKit(path)
             self.SetPyData(child, kit)
@@ -1306,7 +1375,7 @@ Do you want to save them?""",
         # Populate the tree control with content from GDB.
         # The idea here is to only add those files/folders to the tree, which
         # actually are recognized and processed by Kitserver, and leave everything
-        # else out of the tree control. (One exception to this rule is: attrib.cfg
+        # else out of the tree control. (One exception to this rule is: config.txt
         # file in each team folder. Kitserver does process it, but we are not gonna
         # show that file in the tree.)
 
@@ -1450,6 +1519,10 @@ class MyFrame(wx.Frame):
         self.maskFile = MyMaskFile(p2, "mask", "Mask:", "undefined", self.gdbPath, self)
         self.maskFile.refreshOnChange = True
 
+        # overlay file choice
+        self.overlayFile = MyOverlayFile(p2, "overlay", "Overlay:", "undefined", self.gdbPath, self)
+        self.overlayFile.refreshOnChange = True
+
         # Kit database folder
         try:
             cfg = open(CONFIG_FILE, "rt")
@@ -1520,6 +1593,7 @@ class MyFrame(wx.Frame):
         self.rightSizer.Add(self.shortsFolder, 0, wx.LEFT | wx.ALIGN_CENTER, border=10)
         self.rightSizer.Add(self.socksFolder, 0, wx.LEFT | wx.ALIGN_CENTER, border=10)
         self.rightSizer.Add(self.maskFile, 0, wx.LEFT | wx.ALIGN_CENTER, border=10)
+        self.rightSizer.Add(self.overlayFile, 0, wx.LEFT | wx.ALIGN_CENTER, border=10)
 
         splitter.SetMinimumPaneSize(80)
         splitter.SplitVertically(self.tree, p2, -520)
@@ -1729,6 +1803,12 @@ inside your kitserver folder)""",
         except:
             self.maskFile.SetUndef()
 
+        # mask file
+        try:
+            self.overlayFile.SetStringSelection(kit.attributes["overlay"])
+        except:
+            self.overlayFile.SetUndef()
+
         # update shorts color
         try:
             self.shortsCS.SetRGBAColour(MakeRGBAColor(kit.attributes["shorts.color"]))
@@ -1772,6 +1852,7 @@ inside your kitserver folder)""",
             self.shortsFolder.Enable(False)
             self.socksFolder.Enable(False)
             self.maskFile.Enable(False)
+            self.overlayFile.Enable(False)
         else:
             self.collar.Enable(True)
             self.model.Enable(True)
@@ -1789,6 +1870,7 @@ inside your kitserver folder)""",
             self.shortsFolder.Enable(True)
             self.socksFolder.Enable(True)
             self.maskFile.Enable(True)
+            self.overlayFile.Enable(True)
             self.shortsCS.Enable(True)
             self.desc.Enable(True)
 
@@ -1967,7 +2049,7 @@ files for names and numbers, and some others.""" % (VERSION, DATE),
         keys = kit.attributes.keys()
         keys.sort()
         for name in keys:
-            if name.startswith("shorts.num-pal.") or name == "numbers" or name == "description":
+            if name.startswith("shorts.num-pal.") or name in ["numbers","description","overlay","mask"]:
                 print >>file, '%s = "%s"' % (name, kit.attributes[name])
             else:
                 print >>file, "%s = %s" % (name, kit.attributes[name])

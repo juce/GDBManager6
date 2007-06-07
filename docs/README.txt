@@ -1,4 +1,4 @@
-GDB Manager                                                    June 5, 2007
+GDB Manager                                                    June 6, 2007
 ===========================================================================
 Version 6.5
 
@@ -23,7 +23,7 @@ select a kit file there and set/modify attributes in the right panel.
 
 Kit-mixing is now also support (starting with version 6.5).
 Use the controls at the bottom to select folders for your shirt, shorts
-and socks. And don't forget to select the proper mask too.
+and socks, and the overlays. And don't forget to select the proper mask too.
 
 
 3. CREDITS
